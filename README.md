@@ -1,2 +1,2 @@
 # ConnectedToilets
-detecting how much toilet is used and how dirty they are.
+detecting how much the toilet is used and how dirty they are.
