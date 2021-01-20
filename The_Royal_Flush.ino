@@ -2,51 +2,55 @@
 #include "Chrono.h"
 #include <ezButton.h>
 
-ezButton btnToilet1(4); 
-ezButton btnToilet2(5); 
-ezButton btnToilet3(2);
+//This sets up the buttons to the pins on the board
+ezButton btnToilet1(4);
+ezButton btnToilet2(5);
+ezButton btnToilet3(14);
 
-//This sensors normally go into an analog pin
-//Because the huzzah feather only has 1 analog pin, are we connecting these to a digital pin with INPUT_PULLUP
-#define dstncPiscine1 4
-#define dstncPiscine2 5
-#define dstncPiscine3 2
+#define dstncPiscine1 17
 
+//Sets all the counters to 0
 int cntToilet1 = 0;
 int cntToilet2 = 0;
 int cntToilet3 = 0;
 int cntPiscine1 = 0;
-int cntPiscine2 = 0;
-int cntPiscine3 = 0;
 
-int reading;
+int statePiscine1 = 0;
 
+//We use this to not get stuck in a loop later on
+bool sentT1 = true;
+bool sentT2 = true;
+bool sentT3 = true;
+bool sent = true;
+
+//This makes sure that we are connected to the right group on our dashboard
 AdafruitIO_Group *group = io.group("Connected Toilets");
-
+Adafruit_MQTT_Subscribe Toiletrst1 = Adafruit_MQTT_Subscribe(&mqtt, AIO_USERNAME "/feeds/Toilet 1");
+Adafruit_MQTT_Subscribe Toiletrst2 = Adafruit_MQTT_Subscribe(&mqtt, AIO_USERNAME "/feeds/Toilet 2");
+Adafruit_MQTT_Subscribe Toiletrst3 = Adafruit_MQTT_Subscribe(&mqtt, AIO_USERNAME "/feeds/Toilet 3");
+Adafruit_MQTT_Subscribe Piscinerst1 = Adafruit_MQTT_Subscribe(&mqtt, AIO_USERNAME "/feeds/Piscine 1");
 
 Chrono sendTimer;
 Chrono tmPiscine1;
-Chrono tmPiscine2;
-Chrono tmPiscine3;
 
+void MQTT_connect();
 
 void setup()
 {
+  //This starts the serial monitor
   Serial.begin(115200);
 
   // waiting for serial monitor to open
   while (! Serial);
 
   Serial.print("Connecting to Adafruit IO");
-
+  Serial.println(F("Adafruit MQTT demo"));
+  //This connects us to the cloud
   io.connect();
 
-  //group->onMessage("Toilet 1", handleToilet1);
-  //group->onMessage("Toilet 2", handleToilet2);
-  //group->onMessage("Toilet 3", handleToilet3);
 
   // Wait for a connection with the cloud
-  while(io.status() < AIO_CONNECTED)
+  while (io.status() < AIO_CONNECTED)
   {
     Serial.print(".");
     delay(500);
@@ -54,140 +58,167 @@ void setup()
 
   Serial.println();
   Serial.println(io.statusText());
-  btnToilet1.setCountMode(COUNT_FALLING);
+  
+  //We use count_falling to set that the button is pressed when the button is pushed down
+  btnToilet1.setCountMode(COUNT_FALLING);   
   btnToilet2.setCountMode(COUNT_FALLING);
   btnToilet3.setCountMode(COUNT_FALLING);
-  
+
+  mqtt.subscribe(&Toiletrst1);
+  mqtt.subscribe(&Toiletrst2);
+  mqtt.subscribe(&Toiletrst3);
+
+  group->set("Toilet 1", cntToilet1);
+  group->set("Toilet 2", cntToilet2);
+  group->set("Toilet 3", cntToilet3);
+  group->save();
+
   group->get();
 }
 
-void loop() 
+uint32_t x = 0;
+
+void loop()
 {
   // this line is possible in the if statements, we will try if this works
   io.run(); // keeps the client connected
-
+  
+  //Doing this allows us to use the is.Pressed function
   btnToilet1.loop();
   btnToilet2.loop();
   btnToilet3.loop();
   
+  //Sets the counter in a variable
   cntToilet1 = btnToilet1.getCount();
   cntToilet2 = btnToilet2.getCount();
   cntToilet3 = btnToilet3.getCount();
 
-  //normally on digital pins we use digitalRead(), we use analogRead() because we don't have to change the code later on
-  //statePiscine1 = analogRead(dstncPiscine1);
-  //statePiscine2 = analogRead(dstncPiscine2);
-  //statePiscine3 = analogRead(dstncPiscine3);
+  statePiscine1 = analogRead(dstncPiscine1);
 
-
+  //Here we check if the buttons are pressed
   if (btnToilet1.isPressed())
-  { 
+  {
     Serial.print("sending T1 -> ");
     Serial.println(cntToilet1);
     group->set("Toilet 1", cntToilet1);
     group->save();
+    sentT1 = false;
   }
+
   if (btnToilet2.isPressed())
   {
     Serial.print("sending T2 -> ");
     Serial.println(cntToilet2);
     group->set("Toilet 2", cntToilet2);
     group->save();
+    sentT2 = false;
   }
+
   if (btnToilet3.isPressed())
   {
     Serial.print("sending T3 -> ");
     Serial.println(cntToilet3);
     group->set("Toilet 3", cntToilet3);
     group->save();
+    sentT3 = false;
   }
-}
-/*
-  if (statePiscine1 >= 800 && tmPiscine1.hasPassed(10000))
-  {
-    tmPiscine1.stop();
-    statePiscine1++;
-    Serial.print("sending -> ");
-    Serial.println(statePiscine1);
-    piscine1->save(statePiscine1);
-  }
-  else if (statePiscine1 >= 800 && !tmPiscine1.isRunning())
-  {
-    tmPiscine1.restart();
-  }
+  /*
+    if (statePiscine1 >= 900 && tmPiscine1.hasPassed(10000))
+    {
+      tmPiscine1.stop();
+      statePiscine1++;
+      Serial.print("sending P1-> ");
+      Serial.println(statePiscine1);
+      group->set("Piscine 1", cntToilet3);
+      group->save();
+      sent = false;
+    }
+    else if (statePiscine1 >= 800 && !tmPiscine1.isRunning())
+    {
+      tmPiscine1.restart();
+    }
+  */
+  MQTT_connect();    //This is a protocol we use to connect 
   
-  if (statePiscine2 >= 800 && tmPiscine2.hasPassed(10000))
-  {
-    tmPiscine2.stop();
-    statePiscine2++;
-    Serial.print("sending -> ");
-    Serial.println(statePiscine2);
-    piscine2->save(statePiscine2);
-  }
-  else if (statePiscine2 >= 800 && !tmPiscine2.isRunning())
-  {
-    tmPiscine2.restart();
-  }
-  
-  if (statePiscine3 >= 800 && tmPiscine3.hasPassed(10000))
-  {
-    tmPiscine3.stop();
-    statePiscine3++;
-    Serial.print("sending -> ");
-    Serial.println(statePiscine3);
-    piscine3->save(statePiscine3);
-  }
-  else if (statePiscine3 >= 800 && !tmPiscine3.isRunning())
-  {
-    tmPiscine3.restart();
-  }
-}
-*/
-void handleToilet1(AdafruitIO_Data *data)
-{
-  reading = data->toInt();
-  Serial.print("received <- ");
-  Serial.println(reading);
-  cntToilet1 = reading;
-}
+  Adafruit_MQTT_Subscribe *subscription;
+  while ((subscription = mqtt.readSubscription())) {
 
-void handleToilet2(AdafruitIO_Data *data)
-{
-  reading = data->toInt();
-  Serial.print("received <- ");
-  Serial.println(reading);
-  cntToilet2 = reading;
-}
+    if (subscription == &Toiletrst1) {
 
-void handleToilet3(AdafruitIO_Data *data)
-{
-  reading = data->toInt();
-  Serial.print("received <- ");
-  Serial.println(reading);
-  cntToilet3 = reading;
-}
-/*
-void handlePiscine1(AdafruitIO_Data *data)
-{
-  int reading = data->toInt();
-  Serial.print("received <- ");
-  Serial.println(reading);
-  analogWrite(cntPiscine1, reading);
-}
+      Serial.print(F("Toilet1: "));
+      Serial.println((char *)Toiletrst1.lastread);
 
-void handlePiscine2(AdafruitIO_Data *data)
-{
-  int reading = data->toInt();
-  Serial.print("received <- ");
-  Serial.println(reading);
-  analogWrite(cntPiscine2, reading);
-}
+      if (atoi((char *)Toiletrst1.lastread) <= 0 && sentT1 == false) {
+        Serial.println("counter reset");
+        btnToilet1.resetCount();
+        group->set("Toilet 3", 0);    //Sets the value ready for sending to the cloud
+        group->save();    //Sends the value to the cloud
+        sentT1 = true;    //This prevents an infinite loop to begin
+      }
+    }
+    if (subscription == &Toiletrst2) {
 
-void handlePiscine3(AdafruitIO_Data *data)
-{
-  int reading = data->toInt();
-  Serial.print("received <- ");
-  Serial.println(reading);
-  analogWrite(cntPiscine3, reading);
+      Serial.print(F("Toilet2: "));
+      Serial.println((char *)Toiletrst2.lastread);
+
+      if (atoi((char *)Toiletrst2.lastread) <= 0 && sentT2 == false) {
+        Serial.println("counter reset");
+        btnToilet2.resetCount();
+        group->set("Toilet 3", 0);    //Sets the value ready for sending to the cloud
+        group->save();    //Sends the value to the cloud
+        sentT2 = true;     //This prevents an infinite loop to begin
+      }
+    }
+    if (subscription == &Toiletrst3) {
+
+      Serial.print(F("Toilet3: "));
+      Serial.println((char *)Toiletrst3.lastread);
+
+      if (atoi((char *)Toiletrst3.lastread) <= 0 && sentT3 == false) {
+        Serial.println("counter reset");
+        btnToilet3.resetCount();
+        group->set("Toilet 3", 0);    //Sets the value ready for sending to the cloud
+        group->save();    //Sends the value to the cloud
+        sentT3 = true;     //This prevents an infinite loop to begin
+      }
+    }
+    if (subscription == &Piscinerst1) {
+
+      Serial.print(F("piscine 1: "));
+      Serial.println((char *)Piscinerst1.lastread);
+
+      if (atoi((char *)Piscinerst1.lastread) <= 0 && sent == false) {
+        Serial.println("counter reset");
+        cntPiscine1 = 0;
+        group->set("Piscine 1", 0);   //Sets the value ready for sending to the cloud
+        group->save();    //Sends the value to the cloud
+        sent = true;     //This prevents an infinite loop to begin
+      }
+    }
+  }
 }
-*/
+void MQTT_connect()
+{
+  int8_t ret;
+
+  // Stop if already connected.
+  if (mqtt.connected()) {
+    return;
+  }
+
+  Serial.print("Connecting to MQTT... ");
+
+  uint8_t retries = 3;
+  while ((ret = mqtt.connect()) != 0) { // connect will return 0 for connected
+    Serial.println(mqtt.connectErrorString(ret));
+    Serial.println("Retrying MQTT connection in 5 seconds...");
+    mqtt.disconnect();
+    //delay(5000);  // wait 5 seconds
+    retries--;
+    if (retries == 0) {
+      // basically die and wait for WDT to reset me
+      while (1);
+    }
+  }
+  Serial.println("MQTT Connected!");
+}
